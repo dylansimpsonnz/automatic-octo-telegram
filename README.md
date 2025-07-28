@@ -1,6 +1,6 @@
 # Buffered CDC Service
 
-A Go-based service that syncs MongoDB change streams to Kafka with offline buffering and retry logic.
+A Go-based service that syncs MongoDB change streams to Kafka with offline buffering, scheduling and retry logic.
 
 ## Features
 
