@@ -13,12 +13,12 @@ const (
 )
 
 type Event struct {
-	ID                 string                 `json:"id"`
-	Operation          string                 `json:"operation"`
-	Timestamp          time.Time              `json:"timestamp"`
-	Data               map[string]interface{} `json:"data"`
-	Retries            int                    `json:"retries"`
-	RequestedReadyTime *time.Time             `json:"requestedReadyTime"`
+	ID          string                 `json:"id"`
+	Operation   string                 `json:"operation"`
+	Timestamp   time.Time              `json:"timestamp"`
+	Data        map[string]interface{} `json:"data"`
+	Retries     int                    `json:"retries"`
+	DelayedUntil *time.Time             `json:"delayedUntil"`
 }
 
 type Buffer struct {
@@ -93,7 +93,6 @@ func (b *Buffer) GetBatch(batchSize int) ([]*Event, error) {
 func (b *Buffer) GetReadyEvents(batchSize int) ([]*Event, error) {
 	var events []*Event
 	now := time.Now()
-	threshold := now.Add(30 * time.Minute)
 
 	err := b.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket([]byte(eventsBucket))
@@ -109,10 +108,10 @@ func (b *Buffer) GetReadyEvents(batchSize int) ([]*Event, error) {
 				continue
 			}
 			
-			// Include events that are ready (null requestedReadyTime or requestedReadyTime <= now + 30 minutes)
-			if event.RequestedReadyTime == nil || 
-			   event.RequestedReadyTime.Before(threshold) || 
-			   event.RequestedReadyTime.Equal(threshold) {
+			// Include events that are ready (null delayedUntil or delayedUntil <= now)
+			if event.DelayedUntil == nil || 
+			   event.DelayedUntil.Before(now) || 
+			   event.DelayedUntil.Equal(now) {
 				events = append(events, &event)
 				count++
 			}
@@ -128,7 +127,6 @@ func (b *Buffer) GetReadyEvents(batchSize int) ([]*Event, error) {
 func (b *Buffer) GetReadyEventsBulk(batchSize, numBatches int) ([][]*Event, error) {
 	var batches [][]*Event
 	now := time.Now()
-	threshold := now.Add(30 * time.Minute)
 
 	err := b.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket([]byte(eventsBucket))
@@ -145,10 +143,10 @@ func (b *Buffer) GetReadyEventsBulk(batchSize, numBatches int) ([][]*Event, erro
 				continue
 			}
 			
-			// Include events that are ready
-			if event.RequestedReadyTime == nil || 
-			   event.RequestedReadyTime.Before(threshold) || 
-			   event.RequestedReadyTime.Equal(threshold) {
+			// Include events that are ready (null delayedUntil or delayedUntil <= now)
+			if event.DelayedUntil == nil || 
+			   event.DelayedUntil.Before(now) || 
+			   event.DelayedUntil.Equal(now) {
 				currentBatch = append(currentBatch, &event)
 				count++
 				

@@ -126,7 +126,7 @@ Events sent to Kafka have the following structure:
   "id": "unique-event-id",
   "operation": "insert|update|delete|replace",
   "timestamp": "2024-01-01T00:00:00Z",
-  "requestedReadyTime": "2024-01-01T12:00:00Z",
+  "delayedUntil": "2024-01-01T12:00:00Z",
   "data": {
     "documentKey": {...},
     "fullDocument": {...},
@@ -210,14 +210,14 @@ docker build -t buffered-cdc .
    # Delayed message (sent in 2 hours)
    db.events.insertOne({
      message: "Delayed test message",
-     requestedReadyTime: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+     delayedUntil: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
      timestamp: new Date()
    })
    
    # Update existing document
    db.events.updateOne(
      {message: "Immediate test message"}, 
-     {$set: {updated: true, requestedReadyTime: new Date(Date.now() + 45 * 60 * 1000).toISOString()}}
+     {$set: {updated: true, delayedUntil: new Date(Date.now() + 45 * 60 * 1000).toISOString()}}
    )
    ```
 
@@ -225,7 +225,7 @@ docker build -t buffered-cdc .
    - Visit Kafka UI at http://localhost:8080
    - Navigate to Topics → cdc-events
    - View messages to see the CDC events
-   - Note: Delayed messages will only appear after their `requestedReadyTime`
+   - Note: Delayed messages will only appear after their `delayedUntil` time
 
 ### Running Tests
 
@@ -288,7 +288,7 @@ The load tester generates realistic test messages:
   "_id": "generated-id",
   "message": "Load test message #123",
   "timestamp": "2025-01-15T10:30:00Z",
-  "requestedReadyTime": "2025-01-15T14:30:00Z",
+  "delayedUntil": "2025-01-15T14:30:00Z",
   "loadTestBatch": 12,
   "messageType": "delayed|immediate",
   "payload": {
@@ -337,22 +337,22 @@ The load tester reports:
 
 ## Delayed Message Delivery
 
-The service supports delayed message delivery using the `requestedReadyTime` field:
+The service supports delayed message delivery using the `delayedUntil` field:
 
 ### How It Works
 
-- **Immediate Delivery**: Documents without `requestedReadyTime` or with time ≤30 minutes in future are sent immediately
-- **Delayed Delivery**: Documents with `requestedReadyTime` >30 minutes in future are stored and scheduled
+- **Immediate Delivery**: Documents without `delayedUntil` or with time ≤ current time are sent immediately
+- **Delayed Delivery**: Documents with `delayedUntil` > current time are stored and scheduled
 - **Scheduling**: A background task runs every minute to check for ready delayed messages
 
 ### Document Format
 
-Add `requestedReadyTime` as an ISO 8601 string to your MongoDB documents:
+Add `delayedUntil` as an ISO 8601 string to your MongoDB documents:
 
 ```javascript
 {
   message: "Hello World",
-  requestedReadyTime: "2025-01-15T14:30:00Z",  // RFC3339 format
+  delayedUntil: "2025-01-15T14:30:00Z",  // RFC3339 format
   otherField: "value"
 }
 ```

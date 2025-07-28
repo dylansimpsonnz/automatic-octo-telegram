@@ -25,13 +25,13 @@ type LoadTestConfig struct {
 }
 
 type TestMessage struct {
-	ID                string     `bson:"_id,omitempty"`
-	Message           string     `bson:"message"`
-	Timestamp         time.Time  `bson:"timestamp"`
-	RequestedReadyTime *time.Time `bson:"requestedReadyTime,omitempty"`
-	LoadTestBatch     int        `bson:"loadTestBatch"`
-	MessageType       string     `bson:"messageType"`
-	Payload           map[string]interface{} `bson:"payload"`
+	ID           string     `bson:"_id,omitempty"`
+	Message      string     `bson:"message"`
+	Timestamp    time.Time  `bson:"timestamp"`
+	DelayedUntil *time.Time `bson:"delayedUntil,omitempty"`
+	LoadTestBatch int       `bson:"loadTestBatch"`
+	MessageType  string     `bson:"messageType"`
+	Payload      map[string]interface{} `bson:"payload"`
 }
 
 func main() {
@@ -139,13 +139,13 @@ func generateTestMessage(index int, config *LoadTestConfig) *TestMessage {
 	
 	// Determine if this should be a delayed message
 	if rand.Intn(100) < config.DelayedPercent {
-		// Random delay between 31 minutes and max delay hours
-		minDelayMinutes := 31
+		// Random delay between 1 minute and max delay hours
+		minDelayMinutes := 1
 		maxDelayMinutes := config.MaxDelayHours * 60
 		delayMinutes := minDelayMinutes + rand.Intn(maxDelayMinutes-minDelayMinutes)
 		
-		readyTime := now.Add(time.Duration(delayMinutes) * time.Minute)
-		message.RequestedReadyTime = &readyTime
+		delayTime := now.Add(time.Duration(delayMinutes) * time.Minute)
+		message.DelayedUntil = &delayTime
 		message.MessageType = "delayed"
 	} else {
 		message.MessageType = "immediate"

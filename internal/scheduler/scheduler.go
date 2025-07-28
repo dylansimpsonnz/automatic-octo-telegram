@@ -125,21 +125,20 @@ func (s *Scheduler) processScheduledEventsTask(ctx context.Context) error {
 	}
 
 	now := time.Now()
-	threshold := now.Add(30 * time.Minute)
 	processedCount := 0
 
 	for _, event := range events {
-		// Check if this event has a requestedReadyTime and if it's ready
-		if event.RequestedReadyTime != nil {
-			// Event is ready if requestedReadyTime <= current time + 30 minutes
-			if event.RequestedReadyTime.After(threshold) {
+		// Check if this event has a delayedUntil and if it's ready
+		if event.DelayedUntil != nil {
+			// Event is ready if delayedUntil <= current time
+			if event.DelayedUntil.After(now) {
 				// Event is not ready yet, skip
 				continue
 			}
 
 			// Event is ready to be processed - the sync service will pick it up via GetReadyEvents
-			log.Printf("Scheduled event %s is now ready for processing (readyTime: %v, threshold: %v)", 
-				event.ID, event.RequestedReadyTime, threshold)
+			log.Printf("Scheduled event %s is now ready for processing (delayedUntil: %v, now: %v)", 
+				event.ID, event.DelayedUntil, now)
 			processedCount++
 		}
 	}

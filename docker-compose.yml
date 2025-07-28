@@ -90,6 +90,8 @@ services:
         condition: service_healthy
       mongo-setup:
         condition: service_completed_successfully
+      kafka-setup:
+        condition: service_completed_successfully
     environment:
       MONGODB_URI: mongodb://admin:password@mongo:27017/testdb?authSource=admin&replicaSet=rs0
       MONGODB_DATABASE: testdb
@@ -132,6 +134,21 @@ services:
       ME_CONFIG_BASICAUTH_USERNAME: admin
       ME_CONFIG_BASICAUTH_PASSWORD: pass
     restart: unless-stopped
+
+  # Kafka Topic Setup
+  kafka-setup:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka-setup
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      bash -c "
+        kafka-topics --bootstrap-server kafka:29092 --list &&
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic cdc-events --partitions 3 --replication-factor 1 &&
+        echo 'Topics created successfully'
+      "
+    restart: "no"
 
   # Load Test Service (run on demand)
   loadtest:

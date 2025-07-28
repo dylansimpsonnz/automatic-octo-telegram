@@ -88,24 +88,24 @@ func (mm *MongoMonitor) Start(ctx context.Context) error {
 }
 
 func (mm *MongoMonitor) handleChangeEvent(event *ChangeStreamEvent) error {
-	var requestedReadyTime *time.Time
+	var delayedUntil *time.Time
 	
-	// Extract requestedReadyTime from fullDocument if it exists
+	// Extract delayedUntil from fullDocument if it exists
 	if event.FullDocument != nil {
-		if readyTimeVal, exists := event.FullDocument["requestedReadyTime"]; exists && readyTimeVal != nil {
-			if readyTimeStr, ok := readyTimeVal.(string); ok {
-				if parsedTime, err := time.Parse(time.RFC3339, readyTimeStr); err == nil {
-					requestedReadyTime = &parsedTime
+		if delayTimeVal, exists := event.FullDocument["delayedUntil"]; exists && delayTimeVal != nil {
+			if delayTimeStr, ok := delayTimeVal.(string); ok {
+				if parsedTime, err := time.Parse(time.RFC3339, delayTimeStr); err == nil {
+					delayedUntil = &parsedTime
 				}
 			}
 		}
 	}
 
 	bufferEvent := &buffer.Event{
-		ID:                 fmt.Sprintf("%v", event.ID),
-		Operation:          event.OperationType,
-		Timestamp:          time.Now(),
-		RequestedReadyTime: requestedReadyTime,
+		ID:          fmt.Sprintf("%v", event.ID),
+		Operation:   event.OperationType,
+		Timestamp:   time.Now(),
+		DelayedUntil: delayedUntil,
 		Data: map[string]interface{}{
 			"documentKey":   event.DocumentKey,
 			"fullDocument":  event.FullDocument,
@@ -117,10 +117,9 @@ func (mm *MongoMonitor) handleChangeEvent(event *ChangeStreamEvent) error {
 
 	// Check if we should send immediately or delay
 	shouldDelay := false
-	if requestedReadyTime != nil {
-		// Delay if requestedReadyTime > current time + 30 minutes
-		threshold := time.Now().Add(30 * time.Minute)
-		if requestedReadyTime.After(threshold) {
+	if delayedUntil != nil {
+		// Delay if delayedUntil is in the future
+		if delayedUntil.After(time.Now()) {
 			shouldDelay = true
 		}
 	}
@@ -131,7 +130,7 @@ func (mm *MongoMonitor) handleChangeEvent(event *ChangeStreamEvent) error {
 			return fmt.Errorf("failed to store delayed event in buffer: %w", err)
 		}
 		log.Printf("Stored delayed change event: %s for document %v, ready at %v", 
-			event.OperationType, event.DocumentKey, requestedReadyTime)
+			event.OperationType, event.DocumentKey, delayedUntil)
 	} else {
 		// Send immediately (for now, still store in buffer - the sync service will handle immediate sending)
 		if err := mm.buffer.Store(bufferEvent); err != nil {
