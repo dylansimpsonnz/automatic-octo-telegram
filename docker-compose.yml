@@ -133,6 +133,21 @@ services:
       ME_CONFIG_BASICAUTH_PASSWORD: pass
     restart: unless-stopped
 
+  # Load Test Service (run on demand)
+  loadtest:
+    build:
+      context: .
+      dockerfile: Dockerfile.loadtest
+    container_name: loadtest
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      - MONGO_URI=mongodb://admin:password@mongo:27017/?authSource=admin&replicaSet=rs0
+    profiles:
+      - loadtest
+    restart: "no"
+
 volumes:
   zookeeper_data:
   zookeeper_logs:

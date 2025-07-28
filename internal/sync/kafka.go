@@ -22,14 +22,44 @@ type KafkaSync struct {
 }
 
 func NewKafkaSync(cfg *config.Config, buf *buffer.Buffer, connMonitor *monitor.ConnectivityMonitor) *KafkaSync {
+	// Parse compression type
+	var compression kafka.Compression
+	switch cfg.Kafka.CompressionType {
+	case "gzip":
+		compression = kafka.Gzip
+	case "snappy":
+		compression = kafka.Snappy
+	case "lz4":
+		compression = kafka.Lz4
+	case "zstd":
+		compression = kafka.Zstd
+	default:
+		compression = kafka.Snappy
+	}
+
+	// Parse required acks
+	var requiredAcks kafka.RequiredAcks
+	switch cfg.Kafka.Acks {
+	case 0:
+		requiredAcks = kafka.RequireNone
+	case 1:
+		requiredAcks = kafka.RequireOne
+	case -1:
+		requiredAcks = kafka.RequireAll
+	default:
+		requiredAcks = kafka.RequireOne
+	}
+
 	writer := &kafka.Writer{
 		Addr:         kafka.TCP(cfg.Kafka.Brokers...),
 		Topic:        cfg.Kafka.Topic,
 		Balancer:     &kafka.LeastBytes{},
-		BatchTimeout: 10 * time.Millisecond,
-		BatchSize:    cfg.Buffer.BatchSize,
-		RequiredAcks: kafka.RequireOne,
+		BatchTimeout: cfg.Kafka.BatchTimeout,
+		BatchSize:    cfg.Kafka.BatchSize,
+		RequiredAcks: requiredAcks,
 		WriteTimeout: cfg.Kafka.Timeout,
+		Compression:  compression,
+		Async:        false, // Keep synchronous for reliability
 	}
 
 	return &KafkaSync{
@@ -43,7 +73,8 @@ func NewKafkaSync(cfg *config.Config, buf *buffer.Buffer, connMonitor *monitor.C
 func (ks *KafkaSync) Start(ctx context.Context) {
 	log.Println("Starting Kafka sync worker")
 	
-	ticker := time.NewTicker(5 * time.Second)
+	// Use shorter interval for higher throughput
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	statusCh := ks.connMonitor.Subscribe()
@@ -54,8 +85,12 @@ func (ks *KafkaSync) Start(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if ks.connMonitor.IsOnline() {
-				if err := ks.syncBatch(ctx); err != nil {
-					log.Printf("Failed to sync batch: %v", err)
+				// Process multiple batches per tick for higher throughput
+				for i := 0; i < 3; i++ {
+					if err := ks.syncBatch(ctx); err != nil {
+						log.Printf("Failed to sync batch %d: %v", i+1, err)
+						break // Stop on error to avoid cascading failures
+					}
 				}
 			}
 		case status := <-statusCh:
@@ -70,7 +105,7 @@ func (ks *KafkaSync) Start(ctx context.Context) {
 }
 
 func (ks *KafkaSync) syncBatch(ctx context.Context) error {
-	events, err := ks.buffer.GetReadyEvents(ks.config.Retries)
+	events, err := ks.buffer.GetReadyEvents(ks.config.BatchSize)
 	if err != nil {
 		return fmt.Errorf("failed to get ready events from buffer: %w", err)
 	}

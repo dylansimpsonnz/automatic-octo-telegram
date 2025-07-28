@@ -27,7 +27,15 @@ type Buffer struct {
 
 func New(path string) (*Buffer, error) {
 	db, err := bbolt.Open(path, 0600, &bbolt.Options{
-		Timeout: 1 * time.Second,
+		Timeout:         1 * time.Second,
+		NoGrowSync:      false,
+		NoFreelistSync:  false,
+		FreelistType:    bbolt.FreelistMapType,
+		ReadOnly:        false,
+		MmapFlags:       0,
+		InitialMmapSize: 1 << 26, // 64MB initial mmap size
+		PageSize:        4096,
+		NoSync:          false,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open buffer database: %w", err)
@@ -85,11 +93,15 @@ func (b *Buffer) GetBatch(batchSize int) ([]*Event, error) {
 func (b *Buffer) GetReadyEvents(batchSize int) ([]*Event, error) {
 	var events []*Event
 	now := time.Now()
+	threshold := now.Add(30 * time.Minute)
 
 	err := b.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket([]byte(eventsBucket))
 		cursor := bucket.Cursor()
 
+		// Pre-allocate slice with capacity for better performance
+		events = make([]*Event, 0, batchSize)
+		
 		count := 0
 		for key, value := cursor.First(); key != nil && count < batchSize; key, value = cursor.Next() {
 			var event Event
@@ -98,15 +110,11 @@ func (b *Buffer) GetReadyEvents(batchSize int) ([]*Event, error) {
 			}
 			
 			// Include events that are ready (null requestedReadyTime or requestedReadyTime <= now + 30 minutes)
-			if event.RequestedReadyTime == nil {
+			if event.RequestedReadyTime == nil || 
+			   event.RequestedReadyTime.Before(threshold) || 
+			   event.RequestedReadyTime.Equal(threshold) {
 				events = append(events, &event)
 				count++
-			} else {
-				threshold := now.Add(30 * time.Minute)
-				if event.RequestedReadyTime.Before(threshold) || event.RequestedReadyTime.Equal(threshold) {
-					events = append(events, &event)
-					count++
-				}
 			}
 		}
 
@@ -114,6 +122,54 @@ func (b *Buffer) GetReadyEvents(batchSize int) ([]*Event, error) {
 	})
 
 	return events, err
+}
+
+// GetReadyEventsBulk retrieves multiple batches of ready events for concurrent processing
+func (b *Buffer) GetReadyEventsBulk(batchSize, numBatches int) ([][]*Event, error) {
+	var batches [][]*Event
+	now := time.Now()
+	threshold := now.Add(30 * time.Minute)
+
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket([]byte(eventsBucket))
+		cursor := bucket.Cursor()
+
+		batches = make([][]*Event, 0, numBatches)
+		currentBatch := make([]*Event, 0, batchSize)
+		count := 0
+		batchCount := 0
+		
+		for key, value := cursor.First(); key != nil && batchCount < numBatches; key, value = cursor.Next() {
+			var event Event
+			if err := json.Unmarshal(value, &event); err != nil {
+				continue
+			}
+			
+			// Include events that are ready
+			if event.RequestedReadyTime == nil || 
+			   event.RequestedReadyTime.Before(threshold) || 
+			   event.RequestedReadyTime.Equal(threshold) {
+				currentBatch = append(currentBatch, &event)
+				count++
+				
+				if count >= batchSize {
+					batches = append(batches, currentBatch)
+					currentBatch = make([]*Event, 0, batchSize)
+					count = 0
+					batchCount++
+				}
+			}
+		}
+		
+		// Add remaining events as final batch
+		if len(currentBatch) > 0 && batchCount < numBatches {
+			batches = append(batches, currentBatch)
+		}
+
+		return nil
+	})
+
+	return batches, err
 }
 
 func (b *Buffer) Delete(eventID string, timestamp time.Time) error {

@@ -233,6 +233,108 @@ docker build -t buffered-cdc .
 go test ./...
 ```
 
+## Load Testing
+
+The service includes comprehensive load testing capabilities to evaluate performance under various conditions.
+
+### Quick Load Test
+
+```bash
+# Using Make (recommended)
+make quick-test
+
+# Or using the script directly
+./scripts/loadtest.sh --workers 5 --messages 100
+```
+
+### Load Test Options
+
+```bash
+# Small load test
+make loadtest-small    # 5 workers, 100 messages, 20% delayed
+
+# Medium load test  
+make loadtest-medium   # 10 workers, 1000 messages, 30% delayed
+
+# Large load test
+make loadtest-large    # 20 workers, 5000 messages, 40% delayed
+
+# Stress test
+make loadtest-stress   # 50 workers, 10000 messages, 50% delayed
+
+# Custom load test
+./scripts/loadtest.sh --workers 20 --messages 2000 --delayed-percent 25 --max-delay-hours 12
+```
+
+### Load Test Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--workers` | Number of concurrent workers | 10 |
+| `--messages` | Total messages to insert | 1000 |
+| `--batch-size` | Batch size for insertions | 10 |
+| `--delayed-percent` | Percentage of delayed messages | 30% |
+| `--max-delay-hours` | Maximum delay for scheduled messages | 24 hours |
+| `--mongo-uri` | MongoDB connection string | (default) |
+| `--database` | Target database | testdb |
+| `--collection` | Target collection | events |
+
+### Load Test Message Format
+
+The load tester generates realistic test messages:
+
+```json
+{
+  "_id": "generated-id",
+  "message": "Load test message #123",
+  "timestamp": "2025-01-15T10:30:00Z",
+  "requestedReadyTime": "2025-01-15T14:30:00Z",
+  "loadTestBatch": 12,
+  "messageType": "delayed|immediate",
+  "payload": {
+    "index": 123,
+    "worker": 3,
+    "timestamp": 1705315800,
+    "random": 456
+  }
+}
+```
+
+### Monitoring Load Test Results
+
+1. **Kafka UI**: http://localhost:8080
+   - View `cdc-events` topic
+   - Monitor message throughput
+   - Check message distribution
+
+2. **MongoDB Express**: http://localhost:8081
+   - Browse test data
+   - Verify message insertion
+   - Check delayed vs immediate messages
+
+3. **Service Logs**:
+   ```bash
+   make docker-logs
+   # or
+   docker compose logs -f buffered-cdc
+   ```
+
+### Performance Metrics
+
+The load tester reports:
+- **Total duration**: Time to insert all messages
+- **Throughput**: Messages per second
+- **Batch performance**: Per-worker statistics
+- **Error rates**: Failed insertions
+
+### Load Testing Best Practices
+
+1. **Start Small**: Begin with `make quick-test` to verify setup
+2. **Monitor Resources**: Watch CPU, memory, and disk usage
+3. **Check Connectivity**: Ensure Kafka and MongoDB are responsive
+4. **Scale Gradually**: Increase load incrementally
+5. **Clean Between Tests**: Use `make clean` to reset state
+
 ## Delayed Message Delivery
 
 The service supports delayed message delivery using the `requestedReadyTime` field:

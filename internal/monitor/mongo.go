@@ -30,7 +30,15 @@ type ChangeStreamEvent struct {
 }
 
 func NewMongoMonitor(cfg *config.Config, buf *buffer.Buffer) (*MongoMonitor, error) {
-	clientOptions := options.Client().ApplyURI(cfg.MongoDB.URI)
+	clientOptions := options.Client().
+		ApplyURI(cfg.MongoDB.URI).
+		SetMaxPoolSize(uint64(cfg.MongoDB.MaxPoolSize)).
+		SetMinPoolSize(uint64(cfg.MongoDB.MinPoolSize)).
+		SetMaxConnIdleTime(cfg.MongoDB.MaxConnIdleTime).
+		SetMaxConnecting(uint64(cfg.MongoDB.MaxPoolSize/2)).
+		SetRetryWrites(true).
+		SetRetryReads(true)
+		
 	client, err := mongo.Connect(context.Background(), clientOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to MongoDB: %w", err)
